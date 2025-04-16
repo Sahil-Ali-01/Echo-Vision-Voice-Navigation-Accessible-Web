@@ -1,100 +1,124 @@
-// speechToText.js
+// Utility: Stop all audios before playing a new one
+const stopAllAudios = () => {
+  const audios = document.querySelectorAll("audio");
+  audios.forEach(audio => {
+    audio.pause();
+    audio.currentTime = 0;
+  });
+};
 
-// Primary loader Function to Start the Process
+// On page load
 window.addEventListener("load", () => {
+  stopAllAudios();
   audioCheck();
 });
 
-// Double Click to Restart the Process
+// Double click to start/restart voice navigation
 window.addEventListener("dblclick", () => {
+  stopAllAudios();
   playDefaultAudio();
 });
 
+// Audio check based on page logic
 const audioCheck = () => {
-  // Check if there is any Audio to be played or user wants to exit
-  let pageAudio = document.querySelector("#python-audio");
-  if (pageAudio.getAttribute("src") === "stop") {
-    // Tell user they have stopped and how to start again
+  const pageAudio = document.querySelector("#python-audio");
+
+  if (pageAudio && pageAudio.getAttribute("src") === "stop") {
     const stopAudio = document.querySelector("#stop-audio");
     stopAudio.play();
     stopAudio.addEventListener("ended", () => {
-      if (pageAudio.getAttribute("src") !== "") {
-        pageAudio.setAttribute("src", "");
-      }
+      pageAudio.setAttribute("src", "");
     });
-  } else {
-    // If an audio src exists, play it first
-    if (pageAudio.getAttribute("src") !== "") {
-      pageAudio.play();
-    }
+  } else if (pageAudio && pageAudio.getAttribute("src") !== "") {
+    pageAudio.play();
+    pageAudio.addEventListener("ended", () => {
+      playThankYouAndRestartPrompt();
+    });
   }
 };
 
-// Default Audio function
+// Play the intro + begin voice recognition
 const playDefaultAudio = () => {
-  // If Src exists in Dynamic Audio it is removed
-  let pageAudio = document.querySelector("#python-audio");
-  if (pageAudio.getAttribute("src") !== "") {
-    pageAudio.setAttribute("src", "");
-  }
-  // Get audio by id
-  const initial = document.querySelector("#initial-audio");
-  initial.play();
-  // Start Recording after the audio stops
-  initial.addEventListener("ended", runSpeechRecognition);
+  const pageAudio = document.querySelector("#python-audio");
+  if (pageAudio) pageAudio.setAttribute("src", "");
+
+  const intro = document.querySelector("#initial-audio");
+  stopAllAudios();
+  intro.play();
+  intro.addEventListener("ended", runSpeechRecognition, { once: true });
 };
 
-// Speech Recognition function
+// Run voice command recognition
 function runSpeechRecognition() {
-  // Get output div reference
-  var output = document.getElementById("output");
+  const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
 
-  // New speech recognition object
-  var SpeechRecognition = SpeechRecognition || webkitSpeechRecognition;
-  var recognition = new SpeechRecognition();
-
-  // This runs when the speech recognition service returns result
   recognition.onresult = function (event) {
-    // Transcript is the string and confidence is surety of machine
-    var transcript = event.results[0][0].transcript;
-    var confidence = event.results[0][0].confidence;
-    // Append text to the form and submit
-    let autoFormSubmit = document.querySelector("#express");
-    // Adding user input and machine confidence in inputs
+    const transcript = event.results[0][0].transcript;
+    const confidence = event.results[0][0].confidence;
+
     document.querySelector("#user-text").value = transcript;
     document.querySelector("#user-confidence").value = confidence;
     document.querySelector("#current-url").value = window.location.href;
-    console.log(
-      `This is the string : ${transcript}, the confidence ${confidence}`
-    );
-    // Submitting the form
-    autoFormSubmit.submit();
+
+    console.log(`Command: ${transcript} | Confidence: ${confidence}`);
+
+    document.querySelector("#express").submit();
   };
 
-  // Start recognition
+  recognition.onerror = function (event) {
+    console.error("Speech recognition error:", event.error);
+  };
+
   recognition.start();
 }
 
-function startRecognition(field) {
+// Thank you + prompt to start or stop
+function playThankYouAndRestartPrompt() {
+  const thankYouAudio = document.querySelector("#thankyou-audio");
+  stopAllAudios();
+  thankYouAudio.play();
+
+  thankYouAudio.addEventListener("ended", () => {
+    const synth = window.speechSynthesis;
+    const prompt = new SpeechSynthesisUtterance("Say start to continue or say stop to exit.");
+    prompt.lang = "en-US";
+    prompt.voice = synth.getVoices().find(v => v.name.includes("Male") || v.name.includes("Google US English"));
+    synth.speak(prompt);
+
+    prompt.onend = () => {
+      listenForRestartOrStop();
+    };
+  }, { once: true });
+}
+
+// Listen for "start" or "stop" from user
+function listenForRestartOrStop() {
   const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
   recognition.lang = 'en-US';
-  recognition.start();
 
-  recognition.onresult = function(event) {
-    const transcript = event.results[0][0].transcript;
-    document.getElementById(field).value = transcript;
+  recognition.onresult = function (event) {
+    const response = event.results[0][0].transcript.toLowerCase();
+    console.log("User said:", response);
 
-    // Special handling for gender to match the select options
-    if (field === 'gender') {
-      const genderOptions = ['Male', 'Female', 'Other'];
-      const matchedOption = genderOptions.find(option => option.toLowerCase() === transcript.toLowerCase());
-      if (matchedOption) {
-        document.getElementById(field).value = matchedOption;
-      }
+    if (response.includes("start")) {
+      playDefaultAudio();
+    } else if (response.includes("stop")) {
+      const stopAudio = document.querySelector("#stop-audio");
+      stopAudio.play();
+    } else {
+      const synth = window.speechSynthesis;
+      const retry = new SpeechSynthesisUtterance("I didn't understand. Please say start or stop.");
+      retry.lang = "en-US";
+      synth.speak(retry);
+      retry.onend = () => {
+        listenForRestartOrStop();
+      };
     }
   };
 
-  recognition.onerror = function(event) {
-    console.error('Speech recognition error', event.error);
+  recognition.onerror = function (event) {
+    console.error("Error listening:", event.error);
   };
+
+  recognition.start();
 }
